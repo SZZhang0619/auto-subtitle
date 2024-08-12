@@ -4,6 +4,7 @@ import whisper
 import argparse
 import warnings
 import tempfile
+from pydub import AudioSegment
 from .utils import filename, str2bool, write_srt
 
 
@@ -48,7 +49,7 @@ def main():
     model = whisper.load_model(model_name)
     audios = get_audio(args.pop("video"))
     subtitles = get_subtitles(
-        audios, output_srt or srt_only, output_dir, lambda audio_path: model.transcribe(audio_path, **args)
+        audios, output_srt or srt_only, output_dir, model, args
     )
 
     if srt_only:
@@ -87,8 +88,21 @@ def get_audio(paths):
 
     return audio_paths
 
+def split_audio(audio_path, segment_duration=300000):
+    audio = AudioSegment.from_wav(audio_path)
+    segments = []
+    start_times = []
 
-def get_subtitles(audio_paths: list, output_srt: bool, output_dir: str, transcribe: callable):
+    for i in range(0, len(audio), segment_duration):
+        segment = audio[i:i+segment_duration]
+        temp_segment_path = f"{audio_path}_segment_{i//1000}.wav"
+        segment.export(temp_segment_path, format="wav")
+        segments.append(temp_segment_path)
+        start_times.append(i / 1000.0)  # Store the start time in seconds
+
+    return segments, start_times
+
+def get_subtitles(audio_paths: list, output_srt: bool, output_dir: str, model, args: dict):
     subtitles_path = {}
 
     for path, audio_path in audio_paths.items():
@@ -99,12 +113,26 @@ def get_subtitles(audio_paths: list, output_srt: bool, output_dir: str, transcri
             f"Generating subtitles for {filename(path)}... This might take a while."
         )
 
-        warnings.filterwarnings("ignore")
-        result = transcribe(audio_path)
-        warnings.filterwarnings("default")
+        # Split the audio into segments and get start times
+        audio_segments, start_times = split_audio(audio_path)
+        
+        # Initialize result list for segments
+        all_segments = []
 
+        # Process each segment
+        for segment, start_time in zip(audio_segments, start_times):
+            result = model.transcribe(segment, **args)
+
+            # Apply the time offset to each segment
+            for seg in result["segments"]:
+                seg["start"] += start_time
+                seg["end"] += start_time
+
+            all_segments.extend(result["segments"])
+
+        # Write all segments to a single SRT file
         with open(srt_path, "w", encoding="utf-8") as srt:
-            write_srt(result["segments"], file=srt)
+            write_srt(all_segments, file=srt)
 
         subtitles_path[path] = srt_path
 
