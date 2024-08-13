@@ -12,22 +12,22 @@ def main():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("video", nargs="+", type=str,
-                        help="paths to video files to transcribe")
-    parser.add_argument("--model", default="small",
-                        choices=whisper.available_models(), help="name of the Whisper model to use")
+                        help="要轉錄的影片文件路徑")
+    parser.add_argument("--model", default="large-v3",
+                        choices=whisper.available_models(), help="要使用的 Whisper 模型名稱")
     parser.add_argument("--output_dir", "-o", type=str,
-                        default=".", help="directory to save the outputs")
+                        default=".", help="儲存輸出檔案的目錄")
     parser.add_argument("--output_srt", type=str2bool, default=False,
-                        help="whether to output the .srt file along with the video files")
-    parser.add_argument("--srt_only", type=str2bool, default=False,
-                        help="only generate the .srt file and not create overlayed video")
-    parser.add_argument("--verbose", type=str2bool, default=False,
-                        help="whether to print out the progress and debug messages")
+                        help="是否在影片檔案旁邊產生 .srt 字幕檔案")
+    parser.add_argument("--srt_only", type=str2bool, default=True,
+                        help="只產生 .srt 字幕檔案，不產生疊加影片")
+    parser.add_argument("--verbose", type=str2bool, default=True,
+                        help="是否顯示進度條和調試信息")
 
     parser.add_argument("--task", type=str, default="transcribe", choices=[
-                        "transcribe", "translate"], help="whether to perform X->X speech recognition ('transcribe') or X->English translation ('translate')")
+                        "transcribe", "translate"], help="是否進行 X->X 語音識別 ('transcribe') 或 X->英文翻譯 ('translate')")
     parser.add_argument("--language", type=str, default="auto", choices=["auto","af","am","ar","as","az","ba","be","bg","bn","bo","br","bs","ca","cs","cy","da","de","el","en","es","et","eu","fa","fi","fo","fr","gl","gu","ha","haw","he","hi","hr","ht","hu","hy","id","is","it","ja","jw","ka","kk","km","kn","ko","la","lb","ln","lo","lt","lv","mg","mi","mk","ml","mn","mr","ms","mt","my","ne","nl","nn","no","oc","pa","pl","ps","pt","ro","ru","sa","sd","si","sk","sl","sn","so","sq","sr","su","sv","sw","ta","te","tg","th","tk","tl","tr","tt","uk","ur","uz","vi","yi","yo","zh"], 
-    help="What is the origin language of the video? If unset, it is detected automatically.")
+    help="影片的原始語言。如果未設置，則自動檢測。")
 
     args = parser.parse_args().__dict__
     model_name: str = args.pop("model")
@@ -35,39 +35,58 @@ def main():
     output_srt: bool = args.pop("output_srt")
     srt_only: bool = args.pop("srt_only")
     language: str = args.pop("language")
+    video_paths: list = args.pop("video")
     
     os.makedirs(output_dir, exist_ok=True)
 
     if model_name.endswith(".en"):
         warnings.warn(
-            f"{model_name} is an English-only model, forcing English detection.")
+            f"{model_name} 是一個僅支援英文的模型，強制使用英文偵測。")
         args["language"] = "en"
     # if translate task used and language argument is set, then use it
     elif language != "auto":
         args["language"] = language
         
     model = whisper.load_model(model_name)
-    audios = get_audio(args.pop("video"))
-    subtitles = get_subtitles(
-        audios, output_srt or srt_only, output_dir, model, args
-    )
+    
+    total_videos = len(video_paths)
+    for i, video_path in enumerate(video_paths, 1):
+        try:
+            print(f"\n處理第 {i}/{total_videos} 個檔案: {filename(video_path)}")
+            
+            # Extract audio
+            print(f"正在從 {filename(video_path)} 提取音訊...")
+            audio_paths = get_audio([video_path])
+            
+            # Generate subtitles
+            print(f"正在為 {filename(video_path)} 生成字幕...")
+            subtitles = get_subtitles(audio_paths, output_srt or srt_only, output_dir, model, args)
 
-    if srt_only:
-        return
+            if srt_only:
+                print(f"已生成 {filename(video_path)} 的字幕文件。")
+                continue
 
-    for path, srt_path in subtitles.items():
-        out_path = os.path.join(output_dir, f"{filename(path)}.mp4")
+            for path, srt_path in subtitles.items():
+                out_path = os.path.join(output_dir, f"{filename(path)}.mp4")
 
-        print(f"Adding subtitles to {filename(path)}...")
+                print(f"正在為 {filename(path)} 添加字幕...")
 
-        video = ffmpeg.input(path)
-        audio = video.audio
+                video = ffmpeg.input(path)
+                audio = video.audio
 
-        ffmpeg.concat(
-            video.filter('subtitles', srt_path, force_style="OutlineColour=&H40000000,BorderStyle=3"), audio, v=1, a=1
-        ).output(out_path).run(quiet=True, overwrite_output=True)
+                ffmpeg.concat(
+                    video.filter('subtitles', srt_path, force_style="OutlineColour=&H40000000,BorderStyle=3"), audio, v=1, a=1
+                ).output(out_path).run(quiet=True, overwrite_output=True)
 
-        print(f"Saved subtitled video to {os.path.abspath(out_path)}.")
+                print(f"已將字幕添加到 {os.path.abspath(out_path)}。")
+
+            print(f"完成處理 {filename(video_path)}。")
+
+        except Exception as e:
+            print(f"處理 {filename(video_path)} 時發生錯誤: {str(e)}")
+            print("繼續處理下一個檔案...")
+
+    print(f"\n所有檔案處理完成！共處理了 {total_videos} 個檔案。")
 
 
 def get_audio(paths):
@@ -76,7 +95,7 @@ def get_audio(paths):
     audio_paths = {}
 
     for path in paths:
-        print(f"Extracting audio from {filename(path)}...")
+        print(f"正在從 {filename(path)} 提取音訊...")
         output_path = os.path.join(temp_dir, f"{filename(path)}.wav")
 
         ffmpeg.input(path).output(
@@ -110,7 +129,7 @@ def get_subtitles(audio_paths: list, output_srt: bool, output_dir: str, model, a
         srt_path = os.path.join(srt_path, f"{filename(path)}.srt")
         
         print(
-            f"Generating subtitles for {filename(path)}... This might take a while."
+            f"正在為 {filename(path)} 產生字幕... 這可能需要一些時間。"
         )
 
         # Split the audio into segments and get start times
