@@ -24,7 +24,7 @@ def main():
                         default=".", help="儲存輸出檔案的目錄")
     parser.add_argument("--output_srt", type=str2bool, default=False,
                         help="是否在影片檔案旁邊產生 .srt 字幕檔案")
-    parser.add_argument("--srt_only", type=str2bool, default=True,
+    parser.add_argument("--srt_only", type=str2bool, default=False,
                         help="只產生 .srt 字幕檔案，不產生疊加影片")
     parser.add_argument("--task", type=str, default="transcribe", choices=[
                         "transcribe", "translate"], help="是否進行 X->X 語音識別 ('transcribe') 或 X->英文翻譯 ('translate')")

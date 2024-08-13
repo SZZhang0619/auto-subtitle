@@ -45,7 +45,7 @@ choco install ffmpeg
 
 如果您只需要 SRT 字幕檔案而不需要嵌入字幕的影片：
 
-    auto_subtitle /path/to/video.mp4 --output_srt True --srt_only True
+    auto_subtitle /path/to/video.mp4 --srt_only True
 
 ### 選擇計算類型
 
