@@ -6,6 +6,7 @@ import warnings
 import tempfile
 from pydub import AudioSegment
 from .utils import filename, str2bool, write_srt
+import io
 
 def main():
     parser = argparse.ArgumentParser(
@@ -46,7 +47,9 @@ def main():
     elif language != "auto":
         args["language"] = language
         
+    print(f"正在加載 Whisper 模型 {model_name}...")
     model = whisper.load_model(model_name)
+    print("模型加載完成。")
     
     total_videos = len(video_paths)
     for i, video_path in enumerate(video_paths, 1):
@@ -133,9 +136,16 @@ def get_subtitles(audio_path, output_srt, output_dir, model, args, video_path):
 
         all_segments.extend(result["segments"])
 
+    # Sort segments by start time
+    all_segments.sort(key=lambda x: x['start'])
+
     # Write all segments to a single SRT file
-    with open(srt_path, "w", encoding="utf-8") as srt:
-        write_srt(all_segments, file=srt)
+    with io.StringIO() as buffer:
+        write_srt(all_segments, file=buffer)
+        srt_content = buffer.getvalue()
+
+    with open(srt_path, "w", encoding="utf-8") as srt_file:
+        srt_file.write(srt_content)
 
     return srt_path
 

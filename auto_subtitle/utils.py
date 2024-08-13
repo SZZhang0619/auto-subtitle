@@ -38,7 +38,6 @@ def write_srt(transcript: Iterator[dict], file: TextIO):
             f"{format_timestamp(segment['end'], always_include_hours=True)}\n"
             f"{segment['text'].strip().replace('-->', '->')}\n",
             file=file,
-            flush=True,
         )
 
 
