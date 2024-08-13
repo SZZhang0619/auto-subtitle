@@ -7,7 +7,7 @@ setup(
     py_modules=["auto_subtitle"],
     author="Miguel Piedrafita",
     install_requires=[
-        'openai-whisper',
+        'faster-whisper',
         'pydub',
         'numpy',
     ],

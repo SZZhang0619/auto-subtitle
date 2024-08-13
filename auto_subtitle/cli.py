@@ -1,6 +1,6 @@
 import os
 import ffmpeg
-import whisper
+from faster_whisper import WhisperModel
 import argparse
 import warnings
 import tempfile
@@ -9,6 +9,7 @@ from .utils import filename, str2bool, write_srt
 import io
 import concurrent.futures
 import numpy as np
+import logging
 
 def main():
     parser = argparse.ArgumentParser(
@@ -16,20 +17,22 @@ def main():
     parser.add_argument("video", nargs="+", type=str,
                         help="要轉錄的影片文件路徑")
     parser.add_argument("--model", default="large-v3",
-                        choices=whisper.available_models(), help="要使用的 Whisper 模型名稱")
+                        choices=["tiny", "base", "small", "medium", "large-v1", "large-v2", "large-v3"], 
+                        help="要使用的 Whisper 模型名稱")
     parser.add_argument("--output_dir", "-o", type=str,
                         default=".", help="儲存輸出檔案的目錄")
     parser.add_argument("--output_srt", type=str2bool, default=False,
                         help="是否在影片檔案旁邊產生 .srt 字幕檔案")
     parser.add_argument("--srt_only", type=str2bool, default=True,
                         help="只產生 .srt 字幕檔案，不產生疊加影片")
-    parser.add_argument("--verbose", type=str2bool, default=True,
-                        help="是否顯示進度條和調試信息")
-
     parser.add_argument("--task", type=str, default="transcribe", choices=[
                         "transcribe", "translate"], help="是否進行 X->X 語音識別 ('transcribe') 或 X->英文翻譯 ('translate')")
-    parser.add_argument("--language", type=str, default="auto", choices=["auto","af","am","ar","as","az","ba","be","bg","bn","bo","br","bs","ca","cs","cy","da","de","el","en","es","et","eu","fa","fi","fo","fr","gl","gu","ha","haw","he","hi","hr","ht","hu","hy","id","is","it","ja","jw","ka","kk","km","kn","ko","la","lb","ln","lo","lt","lv","mg","mi","mk","ml","mn","mr","ms","mt","my","ne","nl","nn","no","oc","pa","pl","ps","pt","ro","ru","sa","sd","si","sk","sl","sn","so","sq","sr","su","sv","sw","ta","te","tg","th","tk","tl","tr","tt","uk","ur","uz","vi","yi","yo","zh"], 
-    help="影片的原始語言。如果未設置，則自動檢測。")
+    parser.add_argument("--language", type=str, default="auto", 
+                        help="影片的原始語言。如果未設置，則自動檢測。")
+    parser.add_argument("--device", type=str, default="cuda" if os.environ.get("CUDA_VISIBLE_DEVICES") else "cpu",
+                        help="使用的設備 (cuda 或 cpu)")
+    parser.add_argument("--verbose", "-v", action="count", default=0,
+                        help="增加輸出的詳細程度 (可以使用多次，例如 -vv)")
 
     args = parser.parse_args().__dict__
     model_name: str = args.pop("model")
@@ -38,6 +41,8 @@ def main():
     srt_only: bool = args.pop("srt_only")
     language: str = args.pop("language")
     video_paths: list = args.pop("video")
+    device: str = args.pop("device")
+    verbose: int = args.pop("verbose")
     
     os.makedirs(output_dir, exist_ok=True)
 
@@ -49,8 +54,18 @@ def main():
     elif language != "auto":
         args["language"] = language
         
+    # 設置日誌級別
+    if verbose == 0:
+        log_level = logging.WARNING
+    elif verbose == 1:
+        log_level = logging.INFO
+    else:
+        log_level = logging.DEBUG
+    
+    logging.basicConfig(level=log_level, format='%(asctime)s - %(levelname)s - %(message)s')
+    
     print(f"正在加載 Whisper 模型 {model_name}...")
-    model = whisper.load_model(model_name)
+    model = WhisperModel(model_name, device=device, compute_type="float32")
     print("模型加載完成。")
     
     for video_path in video_paths:
@@ -113,7 +128,7 @@ def get_subtitles(audio_path, output_srt, output_dir, model, args, video_path):
     all_segments = []
 
      # 並行處理每個音訊片段
-    print(f"開始並行處理 {len(audio_segments)} 個音訊片段...")
+    logging.info(f"開始並行處理 {len(audio_segments)} 個音訊片段...")
     with concurrent.futures.ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
         futures = [executor.submit(process_audio_segment, segment, start_time, model, args) 
                    for segment, start_time in zip(audio_segments, start_times)]
@@ -122,9 +137,9 @@ def get_subtitles(audio_path, output_srt, output_dir, model, args, video_path):
         for future in concurrent.futures.as_completed(futures):
             all_segments.extend(future.result())
             completed += 1
-            print(f"已完成 {completed}/{len(audio_segments)} 個音訊片段的處理")
+            logging.info(f"已完成 {completed}/{len(audio_segments)} 個音訊片段的處理")
 
-    print("所有音訊片段處理完成，正在生成 SRT 文件...")
+    logging.info("所有音訊片段處理完成，正在生成 SRT 文件...")
 
     # 依照開始時間排序片段
     all_segments.sort(key=lambda x: x['start'])
@@ -145,23 +160,23 @@ def get_subtitles(audio_path, output_srt, output_dir, model, args, video_path):
 
 def process_video(video_path, output_srt, srt_only, output_dir, model, args):
     try:
-        print(f"\n處理檔案: {filename(video_path)}")
+        logging.info(f"\n處理檔案: {filename(video_path)}")
         
         # 擷取音訊
-        print(f"正在從 {filename(video_path)} 提取音訊...")
+        logging.info(f"正在從 {filename(video_path)} 提取音訊...")
         audio_path = get_audio(video_path)
         
         # 產生字幕
-        print(f"正在為 {filename(video_path)} 生成字幕...")
+        logging.info(f"正在為 {filename(video_path)} 生成字幕...")
         srt_path = get_subtitles(audio_path, output_srt or srt_only, output_dir, model, args, video_path)
 
         if srt_only:
-            print(f"已生成 {filename(video_path)} 的字幕文件：{srt_path}")
+            logging.info(f"已生成 {filename(video_path)} 的字幕文件：{srt_path}")
             return
 
         out_path = os.path.join(output_dir, f"{filename(video_path)}_subtitled.mp4")
 
-        print(f"正在為 {filename(video_path)} 添加字幕...")
+        logging.info(f"正在為 {filename(video_path)} 添加字幕...")
 
         video = ffmpeg.input(video_path)
         audio = video.audio
@@ -170,20 +185,24 @@ def process_video(video_path, output_srt, srt_only, output_dir, model, args):
             video.filter('subtitles', srt_path, force_style="OutlineColour=&H40000000,BorderStyle=3"), audio, v=1, a=1
         ).output(out_path).run(quiet=True, overwrite_output=True)
 
-        print(f"已將字幕添加到 {os.path.abspath(out_path)}。")
+        logging.info(f"已將字幕添加到 {os.path.abspath(out_path)}。")
 
-        print(f"完成處理 {filename(video_path)}。")
+        logging.info(f"完成處理 {filename(video_path)}。")
 
     except Exception as e:
-        print(f"處理 {filename(video_path)} 時發生錯誤: {str(e)}")
+        logging.error(f"處理 {filename(video_path)} 時發生錯誤: {str(e)}")
    
 
 def process_audio_segment(segment, start_time, model, args):
-    result = model.transcribe(segment, **args)
-    for seg in result["segments"]:
-        seg["start"] += start_time
-        seg["end"] += start_time
-    return result["segments"]
+    segments, _ = model.transcribe(segment, **args)
+    result = []
+    for seg in segments:
+        result.append({
+            "start": seg.start + start_time,
+            "end": seg.end + start_time,
+            "text": seg.text
+        })
+    return result
 
 if __name__ == '__main__':
     main()
