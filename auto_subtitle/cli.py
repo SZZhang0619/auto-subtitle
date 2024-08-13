@@ -49,6 +49,7 @@ def main():
     verbose: int = args.pop("verbose")
     compute_type: str = args.pop("compute_type")
     
+    os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
     os.makedirs(output_dir, exist_ok=True)
 
     if model_name.endswith(".en"):
