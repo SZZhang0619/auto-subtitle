@@ -33,6 +33,9 @@ def main():
                         help="使用的設備 (cuda 或 cpu)")
     parser.add_argument("--verbose", "-v", action="count", default=0,
                         help="增加輸出的詳細程度 (可以使用多次，例如 -vv)")
+    parser.add_argument("--compute_type", type=str, default="float32",
+                        choices=["float32", "float16", "int8"],
+                        help="計算類型 (float32, float16, 或 int8)")
 
     args = parser.parse_args().__dict__
     model_name: str = args.pop("model")
@@ -43,6 +46,7 @@ def main():
     video_paths: list = args.pop("video")
     device: str = args.pop("device")
     verbose: int = args.pop("verbose")
+    compute_type: str = args.pop("compute_type")
     
     os.makedirs(output_dir, exist_ok=True)
 
@@ -65,8 +69,8 @@ def main():
     logging.basicConfig(level=log_level, format='%(asctime)s - %(levelname)s - %(message)s')
     
     print(f"正在加載 Whisper 模型 {model_name}...")
-    model = WhisperModel(model_name, device=device, compute_type="float32")
-    print("模型加載完成。")
+    model = WhisperModel(model_name, device=device, compute_type=compute_type)
+    print(f"模型加載完成。使用計算類型: {compute_type}")
     
     for video_path in video_paths:
         process_video(video_path, output_srt, srt_only, output_dir, model, args)
