@@ -7,7 +7,6 @@ import tempfile
 from pydub import AudioSegment
 from .utils import filename, str2bool, write_srt
 
-
 def main():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -56,29 +55,28 @@ def main():
             
             # Extract audio
             print(f"正在從 {filename(video_path)} 提取音訊...")
-            audio_paths = get_audio([video_path])
+            audio_path = get_audio(video_path)
             
             # Generate subtitles
             print(f"正在為 {filename(video_path)} 生成字幕...")
-            subtitles = get_subtitles(audio_paths, output_srt or srt_only, output_dir, model, args)
+            srt_path = get_subtitles(audio_path, output_srt or srt_only, output_dir, model, args, video_path)
 
             if srt_only:
-                print(f"已生成 {filename(video_path)} 的字幕文件。")
+                print(f"已生成 {filename(video_path)} 的字幕文件：{srt_path}")
                 continue
 
-            for path, srt_path in subtitles.items():
-                out_path = os.path.join(output_dir, f"{filename(path)}.mp4")
+            out_path = os.path.join(output_dir, f"{filename(video_path)}_subtitled.mp4")
 
-                print(f"正在為 {filename(path)} 添加字幕...")
+            print(f"正在為 {filename(video_path)} 添加字幕...")
 
-                video = ffmpeg.input(path)
-                audio = video.audio
+            video = ffmpeg.input(video_path)
+            audio = video.audio
 
-                ffmpeg.concat(
-                    video.filter('subtitles', srt_path, force_style="OutlineColour=&H40000000,BorderStyle=3"), audio, v=1, a=1
-                ).output(out_path).run(quiet=True, overwrite_output=True)
+            ffmpeg.concat(
+                video.filter('subtitles', srt_path, force_style="OutlineColour=&H40000000,BorderStyle=3"), audio, v=1, a=1
+            ).output(out_path).run(quiet=True, overwrite_output=True)
 
-                print(f"已將字幕添加到 {os.path.abspath(out_path)}。")
+            print(f"已將字幕添加到 {os.path.abspath(out_path)}。")
 
             print(f"完成處理 {filename(video_path)}。")
 
@@ -88,24 +86,17 @@ def main():
 
     print(f"\n所有檔案處理完成！共處理了 {total_videos} 個檔案。")
 
-
-def get_audio(paths):
+def get_audio(video_path):
     temp_dir = tempfile.gettempdir()
+    output_path = os.path.join(temp_dir, f"{filename(video_path)}.wav")
 
-    audio_paths = {}
+    ffmpeg.input(video_path).output(
+        output_path,
+        acodec="pcm_s16le", ac=1, ar="16k"
+    ).run(quiet=True, overwrite_output=True)
 
-    for path in paths:
-        print(f"正在從 {filename(path)} 提取音訊...")
-        output_path = os.path.join(temp_dir, f"{filename(path)}.wav")
+    return output_path
 
-        ffmpeg.input(path).output(
-            output_path,
-            acodec="pcm_s16le", ac=1, ar="16k"
-        ).run(quiet=True, overwrite_output=True)
-
-        audio_paths[path] = output_path
-
-    return audio_paths
 
 def split_audio(audio_path, segment_duration=300000):
     audio = AudioSegment.from_wav(audio_path)
@@ -121,41 +112,32 @@ def split_audio(audio_path, segment_duration=300000):
 
     return segments, start_times
 
-def get_subtitles(audio_paths: list, output_srt: bool, output_dir: str, model, args: dict):
-    subtitles_path = {}
+def get_subtitles(audio_path, output_srt, output_dir, model, args, video_path):
+    srt_path = output_dir if output_srt else tempfile.gettempdir()
+    srt_path = os.path.join(srt_path, f"{filename(video_path)}.srt")
 
-    for path, audio_path in audio_paths.items():
-        srt_path = output_dir if output_srt else tempfile.gettempdir()
-        srt_path = os.path.join(srt_path, f"{filename(path)}.srt")
-        
-        print(
-            f"正在為 {filename(path)} 產生字幕... 這可能需要一些時間。"
-        )
+    # Split the audio into segments and get start times
+    audio_segments, start_times = split_audio(audio_path)
+    
+    # Initialize result list for segments
+    all_segments = []
 
-        # Split the audio into segments and get start times
-        audio_segments, start_times = split_audio(audio_path)
-        
-        # Initialize result list for segments
-        all_segments = []
+    # Process each segment
+    for segment, start_time in zip(audio_segments, start_times):
+        result = model.transcribe(segment, **args)
 
-        # Process each segment
-        for segment, start_time in zip(audio_segments, start_times):
-            result = model.transcribe(segment, **args)
+        # Apply the time offset to each segment
+        for seg in result["segments"]:
+            seg["start"] += start_time
+            seg["end"] += start_time
 
-            # Apply the time offset to each segment
-            for seg in result["segments"]:
-                seg["start"] += start_time
-                seg["end"] += start_time
+        all_segments.extend(result["segments"])
 
-            all_segments.extend(result["segments"])
+    # Write all segments to a single SRT file
+    with open(srt_path, "w", encoding="utf-8") as srt:
+        write_srt(all_segments, file=srt)
 
-        # Write all segments to a single SRT file
-        with open(srt_path, "w", encoding="utf-8") as srt:
-            write_srt(all_segments, file=srt)
-
-        subtitles_path[path] = srt_path
-
-    return subtitles_path
+    return srt_path
 
 
 if __name__ == '__main__':
