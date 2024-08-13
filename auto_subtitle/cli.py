@@ -75,8 +75,13 @@ def main():
     
     with tqdm(total=len(video_paths), desc="影片處理") as pbar:
         for video_path in video_paths:
-            process_video(video_path, output_srt, srt_only, output_dir, model, args)
-            pbar.update(1)
+            try:
+                process_video(video_path, output_srt, srt_only, output_dir, model, args)
+            except Exception as e:
+                logging.error(f"處理 {video_path} 時發生錯誤: {str(e)}")
+                print(f"處理 {video_path} 時發生錯誤。請查看日誌以獲取更多信息。")
+            finally:
+                pbar.update(1)
 
     print(f"\n所有檔案處理完成！共處理了 {len(video_paths)} 個檔案。")
 
@@ -202,9 +207,16 @@ def process_video(video_path, output_srt, srt_only, output_dir, model, args):
 
             logging.info(f"完成處理 {filename(video_path)}。")
 
+    except FileNotFoundError as e:
+        logging.error(f"處理 {filename(video_path)} 時發生錯誤: 找不到文件 - {str(e)}")
+    except ffmpeg.Error as e:
+        logging.error(f"處理 {filename(video_path)} 時發生 FFmpeg 錯誤: {str(e)}")
+    except IOError as e:
+        logging.error(f"處理 {filename(video_path)} 時發生 I/O 錯誤: {str(e)}")
+    except ValueError as e:
+        logging.error(f"處理 {filename(video_path)} 時發生值錯誤: {str(e)}")
     except Exception as e:
-        logging.error(f"處理 {filename(video_path)} 時發生錯誤: {str(e)}")
-   
+        logging.error(f"處理 {filename(video_path)} 時發生未預期的錯誤: {str(e)}")
 
 def process_audio_segment(segment, start_time, model, args):
     segments, _ = model.transcribe(segment, **args)
