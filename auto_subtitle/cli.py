@@ -5,6 +5,7 @@ import argparse
 import warnings
 import tempfile
 from pydub import AudioSegment
+from pydub.silence import split_on_silence
 from .utils import filename, str2bool, write_srt
 import io
 
@@ -43,7 +44,7 @@ def main():
         warnings.warn(
             f"{model_name} 是一個僅支援英文的模型，強制使用英文偵測。")
         args["language"] = "en"
-    # if translate task used and language argument is set, then use it
+    # 如果使用翻譯任務且設定了語言參數，則使用該語言
     elif language != "auto":
         args["language"] = language
         
@@ -56,11 +57,11 @@ def main():
         try:
             print(f"\n處理第 {i}/{total_videos} 個檔案: {filename(video_path)}")
             
-            # Extract audio
+            # 擷取音訊
             print(f"正在從 {filename(video_path)} 提取音訊...")
             audio_path = get_audio(video_path)
             
-            # Generate subtitles
+            # 產生字幕
             print(f"正在為 {filename(video_path)} 生成字幕...")
             srt_path = get_subtitles(audio_path, output_srt or srt_only, output_dir, model, args, video_path)
 
@@ -101,51 +102,63 @@ def get_audio(video_path):
     return output_path
 
 
-def split_audio(audio_path, segment_duration=300000):
+def split_audio(audio_path, min_silence_len=1000, silence_thresh=-40, keep_silence=300):
     audio = AudioSegment.from_wav(audio_path)
-    segments = []
+    segments = split_on_silence(
+        audio,
+        min_silence_len=min_silence_len,  # 最小靜音長度（毫秒）
+        silence_thresh=silence_thresh,    # 靜音閾值（dB）
+        keep_silence=keep_silence         # 保留的靜音長度（毫秒）
+    )
+    
+    temp_segments = []
     start_times = []
+    current_time = 0
 
-    for i in range(0, len(audio), segment_duration):
-        segment = audio[i:i+segment_duration]
-        temp_segment_path = f"{audio_path}_segment_{i//1000}.wav"
+    for i, segment in enumerate(segments):
+        temp_segment_path = f"{audio_path}_segment_{i}.wav"
         segment.export(temp_segment_path, format="wav")
-        segments.append(temp_segment_path)
-        start_times.append(i / 1000.0)  # Store the start time in seconds
+        temp_segments.append(temp_segment_path)
+        start_times.append(current_time / 1000.0)  # 轉換為秒
+        current_time += len(segment)
 
-    return segments, start_times
+    return temp_segments, start_times
 
 def get_subtitles(audio_path, output_srt, output_dir, model, args, video_path):
     srt_path = output_dir if output_srt else tempfile.gettempdir()
     srt_path = os.path.join(srt_path, f"{filename(video_path)}.srt")
 
-    # Split the audio into segments and get start times
+    # 使用靜音檢測分割音頻
     audio_segments, start_times = split_audio(audio_path)
     
-    # Initialize result list for segments
+    # 初始化用於儲存分段結果的列表
     all_segments = []
 
-    # Process each segment
+    # 處理每個音訊片段
     for segment, start_time in zip(audio_segments, start_times):
         result = model.transcribe(segment, **args)
 
-        # Apply the time offset to each segment
+        # 對每個片段套用時間偏移
         for seg in result["segments"]:
             seg["start"] += start_time
             seg["end"] += start_time
 
         all_segments.extend(result["segments"])
 
-    # Sort segments by start time
+    # 依照開始時間排序片段
     all_segments.sort(key=lambda x: x['start'])
 
-    # Write all segments to a single SRT file
+    # 將所有片段寫入單一 SRT 檔案
     with io.StringIO() as buffer:
         write_srt(all_segments, file=buffer)
         srt_content = buffer.getvalue()
 
     with open(srt_path, "w", encoding="utf-8") as srt_file:
         srt_file.write(srt_content)
+
+    # 清理臨時文件
+    for segment in audio_segments:
+        os.remove(segment)
 
     return srt_path
 
