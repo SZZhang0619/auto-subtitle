@@ -23,19 +23,57 @@ choco install ffmpeg
 
 ## 用法
 
-以下指令將產生一個 `subtitled/video.mp4` 的檔案，其中包含帶有新增字幕的輸入影片。
+### 基本用法
 
-    auto_subtitle /path/to/video.mp4 -o subtitled/
+以下指令將產生一個帶有嵌入字幕的影片檔案：
 
-預設設定（選擇`small`模型）適合用在轉錄英文。您可以選擇使用更大的模型以取得更好的结果（尤其是使用其他语言）。可用的模型有 `tiny`, `tiny.en`, `base`, `base.en`, `small`, `small.en`, `medium`, `medium.en`, `large`, `large-v1`, `large-v2`, `large-v3`.
+    auto_subtitle /path/to/video.mp4 -o output_directory/
 
-    auto_subtitle /path/to/video.mp4 --model medium
+### 選擇模型
 
-新增 `--task translate` 會將字幕翻譯成英文:
+您可以選擇不同的模型來優化轉錄效果。可用的模型有 `tiny`, `base`, `small`, `medium`, `large-v1`, `large-v2`, `large-v3`：
+
+    auto_subtitle /path/to/video.mp4 --model large-v3
+
+### 翻譯任務
+
+使用 `--task translate` 將字幕翻譯成英文：
 
     auto_subtitle /path/to/video.mp4 --task translate
 
-執行以下命令可以查看所有可用選項:
+### 只生成 SRT 檔案
+
+如果您只需要 SRT 字幕檔案而不需要嵌入字幕的影片：
+
+    auto_subtitle /path/to/video.mp4 --output_srt True --srt_only True
+
+### 選擇計算類型
+
+根據您的硬體和性能需求，選擇適合的計算類型：
+
+    auto_subtitle /path/to/video.mp4 --compute_type float16
+
+### 指定語言
+
+如果您知道影片的原始語言，可以指定語言來提高準確性：
+
+    auto_subtitle /path/to/video.mp4 --language zh
+
+### 批次處理多個影片
+
+您可以一次處理多個影片檔案：
+
+    auto_subtitle /path/to/video1.mp4 /path/to/video2.mp4 /path/to/video3.mp4 -o output_directory/
+
+### 調整詳細程度
+
+增加輸出的詳細程度以獲得更多處理信息：
+
+    auto_subtitle /path/to/video.mp4 -v
+
+### 查看所有選項
+
+執行以下命令可以查看所有可用選項：
 
     auto_subtitle --help
 
