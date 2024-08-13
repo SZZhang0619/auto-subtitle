@@ -10,6 +10,7 @@ setup(
         'faster-whisper',
         'pydub',
         'numpy',
+        'tqdm',
     ],
     description="Automatically generate and embed subtitles into your videos",
     entry_points={

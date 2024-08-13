@@ -1,3 +1,4 @@
 faster-whisper
 pydub
 numpy
+tqdm

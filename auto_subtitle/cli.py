@@ -10,6 +10,7 @@ import io
 import concurrent.futures
 import numpy as np
 import logging
+from tqdm import tqdm
 
 def main():
     parser = argparse.ArgumentParser(
@@ -72,8 +73,10 @@ def main():
     model = WhisperModel(model_name, device=device, compute_type=compute_type)
     print(f"模型加載完成。使用計算類型: {compute_type}")
     
-    for video_path in video_paths:
-        process_video(video_path, output_srt, srt_only, output_dir, model, args)
+    with tqdm(total=len(video_paths), desc="影片處理") as pbar:
+        for video_path in video_paths:
+            process_video(video_path, output_srt, srt_only, output_dir, model, args)
+            pbar.update(1)
 
     print(f"\n所有檔案處理完成！共處理了 {len(video_paths)} 個檔案。")
 
@@ -164,34 +167,40 @@ def get_subtitles(audio_path, output_srt, output_dir, model, args, video_path):
 
 def process_video(video_path, output_srt, srt_only, output_dir, model, args):
     try:
-        logging.info(f"\n處理檔案: {filename(video_path)}")
-        
-        # 擷取音訊
-        logging.info(f"正在從 {filename(video_path)} 提取音訊...")
-        audio_path = get_audio(video_path)
-        
-        # 產生字幕
-        logging.info(f"正在為 {filename(video_path)} 生成字幕...")
-        srt_path = get_subtitles(audio_path, output_srt or srt_only, output_dir, model, args, video_path)
+        with tqdm(total=4, desc=f"處理 {filename(video_path)}", leave=False) as pbar:
+            logging.info(f"\n處理檔案: {filename(video_path)}")
+            
+            # 擷取音訊
+            logging.info(f"正在從 {filename(video_path)} 提取音訊...")
+            audio_path = get_audio(video_path)
+            pbar.update(1)
+            
+            # 產生字幕
+            logging.info(f"正在為 {filename(video_path)} 生成字幕...")
+            srt_path = get_subtitles(audio_path, output_srt or srt_only, output_dir, model, args, video_path)
+            pbar.update(1)
 
-        if srt_only:
-            logging.info(f"已生成 {filename(video_path)} 的字幕文件：{srt_path}")
-            return
+            if srt_only:
+                logging.info(f"已生成 {filename(video_path)} 的字幕文件：{srt_path}")
+                pbar.update(2)
+                return
 
-        out_path = os.path.join(output_dir, f"{filename(video_path)}_subtitled.mp4")
+            out_path = os.path.join(output_dir, f"{filename(video_path)}_subtitled.mp4")
 
-        logging.info(f"正在為 {filename(video_path)} 添加字幕...")
+            logging.info(f"正在為 {filename(video_path)} 添加字幕...")
+            pbar.update(1)
 
-        video = ffmpeg.input(video_path)
-        audio = video.audio
+            video = ffmpeg.input(video_path)
+            audio = video.audio
 
-        ffmpeg.concat(
-            video.filter('subtitles', srt_path, force_style="OutlineColour=&H40000000,BorderStyle=3"), audio, v=1, a=1
-        ).output(out_path).run(quiet=True, overwrite_output=True)
+            ffmpeg.concat(
+                video.filter('subtitles', srt_path, force_style="OutlineColour=&H40000000,BorderStyle=3"), audio, v=1, a=1
+            ).output(out_path).run(quiet=True, overwrite_output=True)
 
-        logging.info(f"已將字幕添加到 {os.path.abspath(out_path)}。")
+            logging.info(f"已將字幕添加到 {os.path.abspath(out_path)}。")
+            pbar.update(1)
 
-        logging.info(f"完成處理 {filename(video_path)}。")
+            logging.info(f"完成處理 {filename(video_path)}。")
 
     except Exception as e:
         logging.error(f"處理 {filename(video_path)} 時發生錯誤: {str(e)}")
