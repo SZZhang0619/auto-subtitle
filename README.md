@@ -25,9 +25,9 @@ choco install ffmpeg
 
 ### 基本用法
 
-以下指令將產生一個帶有嵌入字幕的影片檔案：
+以下指令將處理一個或多個影片檔案，並在指定的輸出目錄中生成帶有嵌入字幕的影片：
 
-    auto_subtitle /path/to/video.mp4 -o output_directory/
+    auto_subtitle /path/to/video1.mp4 /path/to/video2.mp4 -o output_directory/
 
 ### 選擇模型
 
@@ -47,9 +47,15 @@ choco install ffmpeg
 
     auto_subtitle /path/to/video.mp4 --srt_only True
 
+### 生成單獨的 SRT 檔案
+
+在生成帶字幕的影片的同時，也生成單獨的 SRT 檔案：
+
+    auto_subtitle /path/to/video.mp4 --output_srt True
+
 ### 選擇計算類型
 
-根據您的硬體和性能需求，選擇適合的計算類型：
+根據您的硬體和性能需求，選擇適合的計算類型（float32, float16, 或 int8）：
 
     auto_subtitle /path/to/video.mp4 --compute_type float16
 
@@ -59,15 +65,15 @@ choco install ffmpeg
 
     auto_subtitle /path/to/video.mp4 --language zh
 
-### 批次處理多個影片
+### 選擇設備
 
-您可以一次處理多個影片檔案：
+指定使用 CPU 或 CUDA 進行處理：
 
-    auto_subtitle /path/to/video1.mp4 /path/to/video2.mp4 /path/to/video3.mp4 -o output_directory/
+    auto_subtitle /path/to/video.mp4 --device cuda
 
 ### 調整詳細程度
 
-增加輸出的詳細程度以獲得更多處理信息：
+增加輸出的詳細程度以獲得更多處理信息（可以使用多次，如 -vv）：
 
     auto_subtitle /path/to/video.mp4 -v
 
@@ -76,6 +82,8 @@ choco install ffmpeg
 執行以下命令可以查看所有可用選項：
 
     auto_subtitle --help
+
+注意：如果不指定輸入檔案，程序將自動處理當前目錄下所有支援的檔案（.mp4, .mp3, .m4a）。
 
 ## License
 

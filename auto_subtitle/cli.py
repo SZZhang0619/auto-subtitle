@@ -11,12 +11,13 @@ import concurrent.futures
 import numpy as np
 import logging
 from tqdm import tqdm
+import glob
 
 def main():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("video", nargs="+", type=str,
-                        help="要轉錄的影片文件路徑")
+    parser.add_argument("input_files", nargs="*", type=str,
+                        help="輸入檔案路徑 (支援 .mp4, .mp3, .m4a)")
     parser.add_argument("--model", default="large-v3",
                         choices=["tiny", "base", "small", "medium", "large-v1", "large-v2", "large-v3"], 
                         help="要使用的 Whisper 模型名稱")
@@ -44,7 +45,7 @@ def main():
     output_srt: bool = args.pop("output_srt")
     srt_only: bool = args.pop("srt_only")
     language: str = args.pop("language")
-    video_paths: list = args.pop("video")
+    input_files: list = args.pop("input_files")
     device: str = args.pop("device")
     verbose: int = args.pop("verbose")
     compute_type: str = args.pop("compute_type")
@@ -74,23 +75,40 @@ def main():
     model = WhisperModel(model_name, device=device, compute_type=compute_type)
     print(f"模型加載完成。使用計算類型: {compute_type}")
     
-    with tqdm(total=len(video_paths), desc="影片處理") as pbar:
-        for video_path in video_paths:
+    if not input_files:
+        # 如果未提供輸入檔案，則讀取當前目錄下所有支援的檔案
+        input_files = glob.glob("*.mp4") + glob.glob("*.mp3") + glob.glob("*.m4a")
+        if not input_files:
+            print("當前目錄下沒有找到支援的檔案（.mp4, .mp3, .m4a）。")
+            return
+        print(f"找到 {len(input_files)} 個檔案待處理。")
+
+    with tqdm(total=len(input_files), desc="檔案處理") as pbar:
+        for file_path in input_files:
+            if not os.path.exists(file_path):
+                logging.error(f"檔案不存在: {file_path}")
+                pbar.update(1)
+                continue            
+            
             try:
-                process_video(video_path, output_srt, srt_only, output_dir, model, args)
+                process_file(file_path, output_srt, srt_only, output_dir, model, args)
             except Exception as e:
-                logging.error(f"處理 {video_path} 時發生錯誤: {str(e)}")
-                print(f"處理 {video_path} 時發生錯誤。請查看日誌以獲取更多信息。")
+                logging.error(f"處理 {file_path} 時發生錯誤: {str(e)}")
+                print(f"處理 {file_path} 時發生錯誤。請查看日誌以獲取更多信息。")
             finally:
                 pbar.update(1)
 
-    print(f"\n所有檔案處理完成！共處理了 {len(video_paths)} 個檔案。")
+    print(f"\n所有檔案處理完成！共處理了 {len(input_files)} 個檔案。")
 
-def get_audio(video_path):
+def get_audio(file_path):
     temp_dir = tempfile.gettempdir()
-    output_path = os.path.join(temp_dir, f"{filename(video_path)}.wav")
+    output_path = os.path.join(temp_dir, f"{filename(file_path)}.wav")
 
-    ffmpeg.input(video_path).output(
+    # 統一處理音訊和影片檔案
+    input_stream = ffmpeg.input(file_path)
+    output_stream = input_stream.audio
+
+    output_stream.output(
         output_path,
         acodec="pcm_s16le", ac=1, ar="16k"
     ).run(quiet=True, overwrite_output=True)
@@ -142,7 +160,7 @@ def get_subtitles(audio_path, output_srt, output_dir, model, args, video_path):
             completed += 1
             logging.info(f"已完成 {completed}/{len(audio_segments)} 個音訊片段的處理")
 
-    logging.info("所有音訊片段處理完成，正在生成 SRT 文件...")
+    logging.info("所有音訊片段處理完成，正在生成 SRT 檔案...")
 
     # 依照開始時間排序片段
     all_segments.sort(key=lambda x: x['start'])
@@ -155,39 +173,46 @@ def get_subtitles(audio_path, output_srt, output_dir, model, args, video_path):
     with open(srt_path, "w", encoding="utf-8") as srt_file:
         srt_file.write(srt_content)
 
-    # 清理臨時文件
+    # 清理暫存檔案
     for segment in audio_segments:
         os.remove(segment)
 
     return srt_path
 
-def process_video(video_path, output_srt, srt_only, output_dir, model, args):
+def process_file(file_path, output_srt, srt_only, output_dir, model, args):
     try:
-        with tqdm(total=4, desc=f"處理 {filename(video_path)}", leave=False) as pbar:
-            logging.info(f"\n處理檔案: {filename(video_path)}")
+        with tqdm(total=4, desc=f"處理 {filename(file_path)}", leave=False) as pbar:
+            logging.info(f"\n處理檔案: {filename(file_path)}")
             
             # 擷取音訊
-            logging.info(f"正在從 {filename(video_path)} 提取音訊...")
-            audio_path = get_audio(video_path)
+            logging.info(f"正在從 {filename(file_path)} 提取音訊...")
+            audio_path = get_audio(file_path)
             pbar.update(1)
             
             # 產生字幕
-            logging.info(f"正在為 {filename(video_path)} 生成字幕...")
-            srt_path = get_subtitles(audio_path, output_srt or srt_only, output_dir, model, args, video_path)
+            logging.info(f"正在為 {filename(file_path)} 生成字幕...")
+            srt_path = get_subtitles(audio_path, output_srt or srt_only, output_dir, model, args, file_path)
             pbar.update(1)
 
             if srt_only:
-                logging.info(f"已生成 {filename(video_path)} 的字幕文件：{srt_path}")
+                logging.info(f"已生成 {filename(file_path)} 的字幕檔案：{srt_path}")
                 pbar.update(2)
                 return
 
-            out_path = os.path.join(output_dir, f"{filename(video_path)}_subtitled.mp4")
+            out_path = os.path.join(output_dir, f"{filename(file_path)}_subtitled.mp4")
 
-            logging.info(f"正在為 {filename(video_path)} 添加字幕...")
+            logging.info(f"正在為 {filename(file_path)} 添加字幕...")
             pbar.update(1)
 
-            video = ffmpeg.input(video_path)
-            audio = video.audio
+            file_extension = os.path.splitext(file_path)[1].lower()
+            if file_extension in ['.mp3', '.m4a']:
+                # 如果是音訊檔案，創建一個黑色背景的影片
+                video = ffmpeg.input('color=c=black:s=1920x1080:r=30', f='lavfi', t='00:30:00')
+                audio = ffmpeg.input(file_path)
+            else:
+                # 如果是影片檔案，直接使用
+                video = ffmpeg.input(file_path)
+                audio = video.audio
 
             ffmpeg.concat(
                 video.filter('subtitles', srt_path, force_style="OutlineColour=&H40000000,BorderStyle=3"), audio, v=1, a=1
@@ -196,18 +221,18 @@ def process_video(video_path, output_srt, srt_only, output_dir, model, args):
             logging.info(f"已將字幕添加到 {os.path.abspath(out_path)}。")
             pbar.update(1)
 
-            logging.info(f"完成處理 {filename(video_path)}。")
+            logging.info(f"完成處理 {filename(file_path)}。")
 
     except FileNotFoundError as e:
-        logging.error(f"處理 {filename(video_path)} 時發生錯誤: 找不到文件 - {str(e)}")
+        logging.error(f"處理 {filename(file_path)} 時發生錯誤: 找不到檔案 - {str(e)}")
     except ffmpeg.Error as e:
-        logging.error(f"處理 {filename(video_path)} 時發生 FFmpeg 錯誤: {str(e)}")
+        logging.error(f"處理 {filename(file_path)} 時發生 FFmpeg 錯誤: {str(e)}")
     except IOError as e:
-        logging.error(f"處理 {filename(video_path)} 時發生 I/O 錯誤: {str(e)}")
+        logging.error(f"處理 {filename(file_path)} 時發生 I/O 錯誤: {str(e)}")
     except ValueError as e:
-        logging.error(f"處理 {filename(video_path)} 時發生值錯誤: {str(e)}")
+        logging.error(f"處理 {filename(file_path)} 時發生值錯誤: {str(e)}")
     except Exception as e:
-        logging.error(f"處理 {filename(video_path)} 時發生未預期的錯誤: {str(e)}")
+        logging.error(f"處理 {filename(file_path)} 時發生未預期的錯誤: {str(e)}")
 
 def process_audio_segment(segment, start_time, model, args):
     segments, _ = model.transcribe(segment, **args)
