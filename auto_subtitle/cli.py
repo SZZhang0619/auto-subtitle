@@ -74,6 +74,7 @@ def main():
     print(f"正在加載 Whisper 模型 {model_name}...")
     model = WhisperModel(model_name, device=device, compute_type=compute_type)
     print(f"模型加載完成。使用計算類型: {compute_type}")
+    print(f"使用設備: {device}")
     
     if not input_files:
         # 如果未提供輸入檔案，則讀取當前目錄下所有支援的檔案
