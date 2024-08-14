@@ -98,35 +98,25 @@ def get_audio(video_path):
     return output_path
 
 
-def split_audio(audio_path, min_silence_len=1000, silence_thresh=-40, keep_silence=300):
+def split_audio(audio_path, segment_length=300):  # 300秒 = 5分鐘
     audio = AudioSegment.from_wav(audio_path)
     
-    # 使用 numpy 進行音訊處理
-    samples = np.array(audio.get_array_of_samples())
-    
-    # 計算音量
-    chunk_size = int(audio.frame_rate * (min_silence_len / 1000.0))
-    volume = np.array([max(chunk) for chunk in np.array_split(np.abs(samples), len(samples) // chunk_size)])
-    
-    # 找到靜音部分
-    silent = volume < (10 ** (silence_thresh / 20.0) * audio.max_possible_amplitude)
-    
-    # 分割音訊
-    splits = np.where(np.diff(silent.astype(int)))[0]
-    segments = np.split(samples, splits)
+    # 計算總段數
+    total_segments = int(np.ceil(len(audio) / (segment_length * 1000)))
     
     temp_segments = []
     start_times = []
-    current_time = 0
 
-    for i, segment in enumerate(segments):
-        if not silent[i]:
-            temp_segment = AudioSegment(segment.tobytes(), frame_rate=audio.frame_rate, sample_width=audio.sample_width, channels=audio.channels)
-            temp_segment_path = f"{audio_path}_segment_{i}.wav"
-            temp_segment.export(temp_segment_path, format="wav")
-            temp_segments.append(temp_segment_path)
-            start_times.append(current_time / 1000.0)
-        current_time += len(segment) / audio.frame_rate * 1000
+    for i in range(total_segments):
+        start_time = i * segment_length
+        end_time = min((i + 1) * segment_length, len(audio) / 1000)
+        
+        segment = audio[start_time*1000:end_time*1000]
+        temp_segment_path = f"{audio_path}_segment_{i}.wav"
+        segment.export(temp_segment_path, format="wav")
+        
+        temp_segments.append(temp_segment_path)
+        start_times.append(start_time)
 
     return temp_segments, start_times
 
@@ -134,13 +124,13 @@ def get_subtitles(audio_path, output_srt, output_dir, model, args, video_path):
     srt_path = output_dir if output_srt else tempfile.gettempdir()
     srt_path = os.path.join(srt_path, f"{filename(video_path)}.srt")
 
-    # 使用靜音檢測分割音訊
+    # 使用固定時間間隔分割音訊
     audio_segments, start_times = split_audio(audio_path)
     
     # 初始化用於儲存分段結果的列表
     all_segments = []
 
-     # 並行處理每個音訊片段
+    # 並行處理每個音訊片段
     logging.info(f"開始並行處理 {len(audio_segments)} 個音訊片段...")
     with concurrent.futures.ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
         futures = [executor.submit(process_audio_segment, segment, start_time, model, args) 
