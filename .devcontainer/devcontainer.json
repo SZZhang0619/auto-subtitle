@@ -1,0 +1,8 @@
+{
+	"name": "Setup Shared Agent Environment",
+	"image": "mcr.microsoft.com/devcontainers/javascript-node:1-22-bookworm",
+	"containerEnv": {
+		"GITHUB_TOKEN": "secrets.GITHUB_TOKEN"
+	},
+	"postCreateCommand": "bash -lc 'set -euo pipefail\nnpm install -g npm@latest\nbearer_token_env_var = \"GITHUB_TOKEN\"\nEOT\ncurl -fsSL https://gh.io/copilot-install | bash'"
+}
